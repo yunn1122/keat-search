@@ -29,7 +29,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // 当请求以 /api 开头时，代理到目标地址
+      
       '/api': {
         target: 'http://46.101.49.168', //  Keats API 真实地址
         changeOrigin: true, // 改变源，让目标服务器认为请求来自它自己
