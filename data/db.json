@@ -1,0 +1,139 @@
+{
+  "courses": [
+    {
+      "id": 1,
+      "title": "Python for Everybody",
+      "progress": 25,
+      "completedLessons": ["1-1", "1-2"],
+      "curriculum": [
+        {
+          "id": "sec-1",
+          "title": "Section 1: Introduction",
+          "lessons": [
+            { "id": "1-1", "title": "Welcome to the Course", "duration": "00:30", "video": "https://www.w3schools.com/html/mov_bbb.mp4" ,
+            "transcripts": [
+              { "time": "00:05", "text": "In this video we discuss the history of Python and its origins." },
+              { "time": "00:10", "text": "Python was created by Guido van Rossum in the late 1980s." },
+              { "time": "00:20", "text": "The language is famous for its clear syntax and readability, named after Monty Python." }
+            ] },
+            { "id": "1-2", "title": "What is Python?", "duration": "00:52", "video": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            "transcripts": [
+              { "time": "00:05", "text": "Python is a high-level, interpreted programming language." },
+              { "time": "00:15", "text": "It's widely used for web development, data analysis, AI, and scientific computing." },
+              { "time": "00:30", "text": "Its versatility and large community make it very popular among developers." }
+            ]},
+            { "id": "1-3", "title": "Course Overview & Structure", "duration": "00:11", "video": "https://www.w3schools.com/html/mov_bbb.mp4",
+            "transcripts": [
+              { "time": "00:02", "text": "This lesson covers the overall structure of our Python course." },
+              { "time": "00:07", "text": "We will learn about variables, data types, and functions." }
+            ]}
+          ]
+        },
+        {
+          "id": "sec-2",
+          "title": "Section 2: Basic Syntax & Data Types",
+          "lessons": [
+            { "id": "2-1", "title": "Variables and Expressions", "duration": "00:52", "video": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            "transcripts": [
+              { "time": "00:03", "text": "Variables are used to store data values in Python programs." },
+              { "time": "00:10", "text": "Expressions combine values, variables, and operators." },
+              { "time": "00:25", "text": "Understanding how to assign and use variables is fundamental." }
+            ]},
+            { "id": "2-2", "title": "Conditional Statements (if/else)", "duration": "00:11", "video": "https://www.w3schools.com/html/mov_bbb.mp4",
+            "transcripts": [
+              { "time": "00:03", "text": "Conditional statements allow different actions based on conditions." },
+              { "time": "00:07", "text": "The 'if', 'elif', and 'else' keywords are used for branching." }
+            ]},
+            { "id": "2-3", "title": "Introduction to Functions", "duration": "00:52", "video": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            "transcripts": [
+              { "time": "00:05", "text": "Functions are blocks of reusable code that perform a specific task." },
+              { "time": "00:18", "text": "Defining functions helps organize code and promotes reusability." }
+            ]}
+          ]
+        },
+        {
+          "id": "sec-3",
+          "title": "Section 3: Data Structures",
+          "lessons": [
+            { "id": "3-1", "title": "Working with Lists", "duration": "00:11", "video": "https://www.w3schools.com/html/mov_bbb.mp4",
+            "transcripts": [
+              { "time": "00:02", "text": "Lists in Python are ordered, changeable collections." },
+              { "time": "00:08", "text": "They can contain duplicate members and are very versatile." }
+            ]},
+            { "id": "3-2", "title": "Understanding Dictionaries", "duration": "00:52", "video": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            "transcripts": [
+              { "time": "00:04", "text": "Dictionaries store data values in key:value pairs." },
+              { "time": "00:12", "text": "Keys must be unique, and values can be any data type." }
+            ]},
+            { "id": "3-3", "title": "Manipulating Tuples", "duration": "00:11", "video": "https://www.w3schools.com/html/mov_bbb.mp4",
+            "transcripts": [
+              { "time": "00:03", "text": "Tuples are ordered, immutable collections in Python." },
+              { "time": "00:09", "text": "Once created, elements of a tuple cannot be changed." }
+            ]}
+          ]
+        }
+      ],
+      "resources": {
+        "1-1": [
+          {
+            "id": "slide-1-1-intro",
+            "name": "Introduction to Python Slides",
+            "type": "slide",
+            "previewImage": "https://images.unsplash.com/photo-1550439062-609e1531270e?q=80&w=200&h=120&auto=format&fit=crop",
+            "searchableContent": [
+              { "page": 1, "text": "Welcome to Python for Everybody course. This slide introduces the course objectives." },
+              { "page": 2, "text": "Python's history and why it is a popular language today." },
+              { "page": 3, "text": "Key features: readability, versatility, large community. Created by Guido van Rossum." }
+            ]
+          }
+        ],
+        "1-2": [
+          {
+            "id": "slide-1-2-what",
+            "name": "What is Python Slides",
+            "type": "slide",
+            "previewImage": "https://images.unsplash.com/photo-1515879218637-ad0d41e73a70?q=80&w=200&h=120&auto=format&fit=crop",
+            "searchableContent": [
+              { "page": 1, "text": "Python as a high-level interpreted language." },
+              { "page": 2, "text": "Applications of Python: Web development, data science, machine learning." },
+              { "page": 3, "text": "The role of the Python interpreter and execution flow." }
+            ]
+          }
+        ],
+        "2-1": [
+          {
+            "id": "slide-2-1-vars",
+            "name": "Variables and Expressions Slides",
+            "type": "slide",
+            "previewImage": "https://images.unsplash.com/photo-1536148906509-f3cc2572140d?q=80&w=200&h=120&auto=format&fit=crop",
+            "searchableContent": [
+              { "page": 1, "text": "Introduction to variables in programming. How to declare variables." },
+              { "page": 2, "text": "Different types of expressions: arithmetic, relational, logical." },
+              { "page": 3, "text": "Variable naming rules and best practices in Python." }
+            ]
+          },
+          { "id": "r2-extra", "name": "Extra_Notes_2-1.pdf", "type": "PDF" }
+        ],
+        "3-2": [
+          {
+            "id": "slide-3-2-dicts",
+            "name": "Dictionaries Deep Dive Slides",
+            "type": "slide",
+            "previewImage": "https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=200&h=120&auto=format&fit=crop",
+            "searchableContent": [
+              { "page": 1, "text": "Understanding Python dictionaries as key-value stores." },
+              { "page": 2, "text": "Creating, accessing, and modifying dictionary elements." },
+              { "page": 3, "text": "Dictionary methods: keys(), values(), items()." },
+              { "page": 4, "text": "When to use dictionaries vs lists for data storage." }
+            ]
+          },
+          { "id": "r3-data", "name": "Sample_Data.csv", "type": "CSV" }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Modern Web Development"
+    }
+  ]
+}

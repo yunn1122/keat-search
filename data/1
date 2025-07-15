@@ -1,0 +1,603 @@
+<script setup>
+// =======================================================================
+// 1. IMPORTS & SETUP
+// =======================================================================
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { Search, VideoCamera, Picture, VideoPlay } from '@element-plus/icons-vue' // 引入 VideoPlay 图标
+
+// =======================================================================
+// 2. STATE MANAGEMENT (REFS)
+// =======================================================================
+const courseData = ref(null)
+const allResults = ref([])
+const isLoading = ref(true)
+const error = ref(null)
+const route = useRoute()
+const router = useRouter()
+
+const searchQuery = ref('')
+const activeTab = ref('all')
+const sortBy = ref('relevance')
+const currentPage = ref(1)
+//设置分页数量
+const pageSize = ref(6)
+
+// =======================================================================
+// 6. HELPER FUNCTIONS & DEFINITIONS (Moved up for accessibility)
+// =======================================================================
+
+/**
+ * 【修正】将 getLessonTitle 移动到顶层作用域，以便全局访问。
+ * 它依赖 courseData，所以在使用时要确保 courseData.value 存在。
+ */
+const getLessonTitle = (lessonId) => {
+  if (!courseData.value || !courseData.value.curriculum) return 'Unknown Lesson';
+  for (const section of courseData.value.curriculum) {
+    const lesson = section.lessons?.find(l => l.id === lessonId);
+    if (lesson) return lesson.title;
+  }
+  return 'Unknown Lesson';
+};
+
+function highlight(text) {
+  if (!searchQuery.value || !text) { return text }
+  const regex = new RegExp(`(${searchQuery.value})`, 'gi')
+  return text.replace(regex, `<span class="highlight">$1</span>`)
+}
+
+// 调整图标，只保留 Video 和 Resource (代表幻灯片)
+const typeIcons = {
+  Video: VideoCamera,
+  Resource: Picture, // 幻灯片/图片资源
+}
+
+// =======================================================================
+// 3. LIFECYCLE HOOK (DATA FETCHING)
+// =======================================================================
+onMounted(async () => {
+  const courseId = route.query.courseId;
+  searchQuery.value = route.query.q || '';
+
+  if (!courseId) {
+    error.value = "Error: courseId parameter is missing from the URL.";
+    isLoading.value = false;
+    return;
+  }
+
+  try {
+    const response = await fetch(`http://localhost:3000/courses/${courseId}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch course data (status code: ${response.status})`);
+    }
+    const data = await response.json();
+    courseData.value = data; // 首先为 courseData 赋值
+    allResults.value = transformDataForSearch(data); // 然后再执行依赖它的函数
+
+  } catch (e) {
+    console.error("Error fetching or processing data:", e);
+    error.value = e.message;
+  } finally {
+    isLoading.value = false;
+  }
+})
+
+// =======================================================================
+// 4. DATA TRANSFORMATION
+// =======================================================================
+/**
+ * Transforms the raw course data from the server into a flat, searchable list.
+ * @param {object} course - The complete course object from json-server.
+ * @returns {array} - A flat array of result objects ready for the UI.
+ */
+function transformDataForSearch(course) {
+  const index = [];
+  if (!course) return [];
+  const courseId = course.id;
+
+  // 1. 索引视频文字稿 (Video Transcripts)
+  for (const section of course.curriculum || []) {
+    for (const lesson of section.lessons || []) {
+      if (lesson.transcripts && Array.isArray(lesson.transcripts)) {
+        lesson.transcripts.forEach(transcript => {
+          index.push({
+            type: 'Video', id: `video-${lesson.id}-${transcript.time}`, lessonId: lesson.id, courseId: courseId,
+            originalTitle: lesson.title, // 存储原始标题
+            title: lesson.title, // 仍然保留 title 字段，以便于 filter 和 sort
+            snippet: transcript.text,
+            source: `Lesson ${lesson.id}`, // 更简洁的来源
+            timestamp: transcript.time, lessonNumber: parseInt(lesson.id.split('-')[0], 10),
+            videoSrc: lesson.video // 用于在深搜结果中显示视频，如果需要
+          });
+        });
+      }
+    }
+  }
+
+  // 2. 索引幻灯片 (Slides as Resources)
+  // 仅索引明确标记为 'slide' 类型且有 searchableContent 的资源
+  for (const lessonId in course.resources || {}) {
+    for (const r of course.resources[lessonId] || []) {
+      if (r.type === 'slide' && r.searchableContent && Array.isArray(r.searchableContent)) {
+        r.searchableContent.forEach((content, contentIndex) => {
+          index.push({
+            type: 'Resource', // 使用 Resource 类型代表幻灯片
+            id: `resource-${r.id}-p${content.page || contentIndex}`, // 可以包含页面信息
+            lessonId: lessonId, courseId: courseId,
+            originalTitle: r.name, // 存储幻灯片原始名称
+            title: `${r.name} (Page ${content.page || 'N/A'})`, // title 字段包含页码，用于高亮显示在子项片段中
+            snippet: content.text,
+            source: `Slide ${r.id}`, // 更简洁的来源
+            lessonNumber: parseInt(lessonId.split('-')[0], 10),
+            page: content.page, // 存储页码，用于跳转
+            previewImage: r.previewImage || null // 幻灯片预览图路径
+          });
+        });
+      }
+    }
+  }
+
+  return index;
+}
+
+// =======================================================================
+// 5. COMPUTED PROPERTIES
+// =======================================================================
+const courseTitle = computed(() => courseData.value?.title || 'Loading Course...')
+
+const processedResults = computed(() => {
+  let results = allResults.value
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase()
+    results = results.filter(result => {
+      // 过滤时使用原始的 title 和 snippet 进行匹配
+      const titleMatch = result.originalTitle?.toLowerCase().includes(query)
+      const snippetMatch = result.snippet?.toLowerCase().includes(query)
+      return titleMatch || snippetMatch
+    })
+  }
+  // 过滤类型：只保留 Video 和 Resource (幻灯片)
+  if (activeTab.value !== 'all') {
+    results = results.filter(result => result.type.toLowerCase() === activeTab.value)
+  } else {
+    // 确保 'all' 模式下也只显示允许的类型
+    results = results.filter(result => ['video', 'resource'].includes(result.type.toLowerCase()));
+  }
+
+  if (sortBy.value === 'chronological') {
+    results.sort((a, b) => a.lessonNumber - b.lessonNumber)
+  }
+  return results
+})
+
+// 深度搜索结果：视频和幻灯片都进行分组，并修复标题重复
+const groupedResults = computed(() => {
+  const grouped = new Map();
+  processedResults.value.forEach(result => {
+    let key;
+    let groupTitle;
+    let groupSource; // 修改为更简洁的来源
+    let commonPreviewImage; // 用于幻灯片
+    let commonVideoSrc;     // 用于视频
+
+    if (result.type === 'Video') {
+      key = `video-group-${result.lessonId}`;
+      groupTitle = result.originalTitle; // 使用原始标题作为组标题
+      groupSource = `Lesson ${result.lessonId}`; // 视频的来源是课时ID
+      commonVideoSrc = result.videoSrc; // 视频的通用源
+    } else if (result.type === 'Resource') { // 幻灯片
+      key = `slide-group-${result.id.split('-p')[0]}`; // 幻灯片按其基础ID分组 (去掉页码)
+      groupTitle = result.originalTitle; // 使用幻灯片原始标题作为组标题 (不带Page X)
+      groupSource = `Slide ${result.lessonId}`; // 幻灯片来源是课时ID
+      commonPreviewImage = result.previewImage; // 幻灯片的通用预览图
+    } else {
+        return; // 不处理其他类型
+    }
+
+    // 只在第一次遇到该组时创建，确保 groupTitle, groupSource 等只设置一次
+    if (!grouped.has(key)) {
+        grouped.set(key, {
+            type: result.type,
+            icon: typeIcons[result.type],
+            title: groupTitle, // 组标题
+            source: groupSource, // 组来源
+            lessonId: result.lessonId,
+            courseId: result.courseId,
+            videoSrc: commonVideoSrc,
+            previewImage: commonPreviewImage,
+            children: [] // 存放该视频/幻灯片下的所有匹配片段
+        });
+    }
+
+    const groupItem = grouped.get(key);
+    groupItem.children.push({
+        id: result.id,
+        snippet: result.snippet, // 原始 snippet，用于高亮
+        timestamp: result.timestamp, // 视频时间戳
+        page: result.page,           // 幻灯片页码
+    });
+  });
+  return Array.from(grouped.values());
+});
+
+
+const paginatedResults = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return groupedResults.value.slice(start, end)
+})
+
+function getTargetTab(type) {
+  switch (type) {
+    case 'Resource': // 幻灯片
+      return 'Resources'; // 课程详情页的幻灯片标签页名称
+    case 'Video': // 视频转录
+      return 'Transcript'; // 课程详情页的视频转录标签页名称
+    default:
+      return 'Transcript'; // 默认情况，以防万一
+  }
+}
+
+// 跳转到课程详情页的逻辑
+function navigateToCourseDetail(group, child) {
+  const queryParams = {
+    lessonId: group.lessonId,
+    highlight: searchQuery.value,
+  };
+  let hash = '';
+
+  if (group.type === 'Video') {
+    queryParams.timestamp = child.timestamp;
+    queryParams.targetTab = 'Transcript'; // 视频结果应跳转到Transcript标签页
+    hash = '#video-player-container'; // 定位到视频播放器
+  } else if (group.type === 'Resource') { // 幻灯片
+    queryParams.targetTab = 'Resources'; // 跳转到 Slides 标签页
+    // 对于幻灯片，我们跳转到资源列表，并尝试定位到特定资源项
+    // result.id 是 `resource-r.id-pX`，所以需要提取 `resource-r.id` 部分
+    const resourceBaseId = child.id.split('-p')[0];
+    hash = `#${resourceBaseId}`; // 锚点到资源项ID
+    // 可以在这里附加 page 参数，让课程详情页的 Resources Tab 内部逻辑去处理跳转到具体的幻灯片页码
+    // queryParams.page = child.page; // 如果需要传递页码
+  } else {
+      // Fallback for unexpected types, though with strict filtering, this should not happen
+      console.warn("Unexpected search result type in navigateToCourseDetail:", group.type);
+      queryParams.targetTab = 'Transcript';
+      hash = '#video-player-container'; // Default fallback
+  }
+
+  router.push({
+    name: 'CourseDetail',
+    params: { id: group.courseId },
+    query: queryParams,
+    hash: hash
+  });
+}
+
+</script>
+
+<template>
+  <div class="search-page-container">
+    <div v-if="isLoading" class="state-feedback">
+      <h2>Loading Results...</h2>
+      <p>Fetching data from the server, please wait.</p>
+    </div>
+    <div v-else-if="error" class="state-feedback error">
+      <h2>An Error Occurred</h2>
+      <p>{{ error }}</p>
+      <RouterLink to="/">Go back to the homepage</RouterLink>
+    </div>
+
+    <div v-else>
+      <div class="sticky-search-header">
+        <div class="course-context-header">
+          <p> </p>
+          <h2 style="font-weight: bold; ">Search in : {{ courseTitle }}</h2>
+        </div>
+        <div class="search-input-area">
+          <el-input
+            v-model="searchQuery"
+            placeholder="Search content in this course..."
+            size="large"
+            :prefix-icon="Search"
+            clearable
+          />
+        </div>
+        <div class="toolbar">
+          <div class="results-count">
+            Found {{ groupedResults.length }} groups of results
+          </div>
+          <el-select v-model="sortBy" placeholder="Sort by" size="small" style="width: 180px;">
+            <el-option label="Sort by Relevance" value="relevance"></el-option>
+            <el-option label="Sort by Course Order" value="chronological"></el-option>
+          </el-select>
+        </div>
+        <div class="filter-tabs-area">
+          <el-tabs v-model="activeTab" class="search-tabs">
+            <el-tab-pane label="All" name="all"></el-tab-pane>
+            <el-tab-pane label="Videos" name="video"></el-tab-pane>
+            <el-tab-pane label="Slides" name="resource"></el-tab-pane>
+          </el-tabs>
+        </div>
+      </div>
+
+      <div class="results-display-area">
+        <div v-if="paginatedResults.length > 0" class="results-list">
+          <div v-for="group in paginatedResults" :key="group.type + '-' + group.lessonId + '-' + group.title" class="result-group-wrapper">
+
+            <div class="search-result-card">
+                <div class="card-inner-content">
+                    <div class="media-preview-area">
+                        <div v-if="group.type === 'Video'" class="video-player-preview-container">
+                            <video :src="group.videoSrc"
+                                   preload="metadata" controlslist="nodownload nofullscreen noremoteplayback"
+                                   disablepictureinpicture
+                                   class="video-preview-player">
+                            </video>
+                            <el-icon class="play-icon-overlay"><VideoPlay /></el-icon>
+                        </div>
+                        <img v-else-if="group.type === 'Resource' && group.previewImage" :src="group.previewImage" alt="Slide Preview" class="slide-preview-thumbnail-large">
+                    </div>
+
+                    <div class="info-details-area">
+                        <p class="result-group-title">{{ group.title }}</p>
+                        <p class="result-group-source">{{ group.source }}</p>
+                        <div class="matching-segments-list">
+                            <a
+                                v-for="child in group.children"
+                                :key="child.id"
+                                @click="navigateToCourseDetail(group, child)"
+                                class="segment-link"
+                            >
+                                <span v-if="group.type === 'Video'" class="segment-context">[ {{ child.timestamp }} ]</span>
+                                <span v-else-if="group.type === 'Resource'" class="segment-context">[ Page {{ child.page }} ]</span>
+                                <span class="segment-snippet" v-html="highlight(child.snippet)"></span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+          </div>
+        </div>
+        <div v-else class="no-results">
+          <p>No results found for your query.</p>
+        </div>
+      </div>
+
+      <div v-if="groupedResults.length > pageSize" class="pagination-area">
+        <el-pagination
+          background
+          layout="prev, pager, next"
+          :total="groupedResults.length"
+          :page-size="pageSize"
+          v-model:current-page="currentPage"
+        />
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+/* State Feedback Styles */
+.state-feedback { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 60vh; text-align: center; }
+.state-feedback h2 { margin-bottom: 8px; color: #303133; }
+.state-feedback p { color: #606266; }
+.state-feedback.error h2 { color: #f56c6c; }
+.state-feedback.error p { color: #f89898; }
+
+/* Link Styles */
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Main Layout Styles */
+.search-page-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: sans-serif;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 80px);
+}
+.sticky-search-header { position: sticky; top: 0; background-color: white; z-index: 10; padding-top: 20px; margin-bottom: 20px; }
+/* Header & Toolbar */
+.course-context-header { padding-bottom: 12px; padding-top:30px;margin-bottom: 6px; }
+.course-context-header p { margin: 0 0 4px 0; font-size: 14px; color: #909399; }
+.course-context-header h2 { margin: 0; font-size: 24px; color: #303133; }
+.search-input-area { margin-bottom: 20px; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 0 5px; }
+.results-count { font-size: 14px; color: #606266; }
+.filter-tabs-area { border-bottom: 1px solid #e4e7ed; }
+:deep(.el-tabs__header) { margin: 0; }
+
+/* New Unified Search Result Card */
+.search-result-card {
+    border: 1px solid #e4e7ed;
+    border-radius: 8px;
+    margin-bottom: 20px; /* Space between cards */
+    overflow: hidden;
+    background-color: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    transition: box-shadow 0.2s, transform 0.2s;
+}
+.search-result-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+/* New wrapper for card content to handle internal padding and flex alignment */
+.card-inner-content { /* Changed from direct child selector to class for clarity */
+    display: flex;
+    align-items: flex-start;
+    width: 100%; /* Ensures it takes full width of the card */
+    padding: 15px; /* Unified padding for the card content */
+    box-sizing: border-box; /* Include padding in width/height */
+}
+
+
+.media-preview-area {
+    flex-shrink: 0;
+    width: 200px; /* 统一媒体预览区域宽度 */
+    height: 120px; /* 统一高度 */
+    background-color: #000; /* 视频背景 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    /* 视频/幻灯片预览与右侧内容之间的间距 */
+    margin-right: 15px; /* 调整为更合适的间距 */
+    border-radius: 4px; /* Maintain inner border radius */
+}
+
+/* Video Player Preview */
+.video-player-preview-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background-color: #000;
+}
+.video-preview-player {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    /* 视频本身不透明，让其帧更清晰 */
+}
+/* 隐藏 video 默认的播放按钮等控件 */
+.video-preview-player::-webkit-media-controls { display: none !important; }
+.video-preview-player::--webkit-media-controls-enclosure { display: none !important; }
+
+.play-icon-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(1); /* 初始大小 */
+    color: white;
+    font-size: 60px; /* 播放图标更大，更醒目 */
+    opacity: 0.9; /* 保持一点透明度，露出下方视频 */
+    text-shadow: 0px 0px 8px rgba(0,0,0,0.7);
+    transition: opacity 0.2s, transform 0.2s; /* 添加 transform 过渡 */
+    cursor: pointer; /* 播放图标区域可点击 */
+}
+.search-result-card:hover .play-icon-overlay {
+    opacity: 1; /* 鼠标悬停时更清晰 */
+    transform: translate(-50%, -50%) scale(1.1); /* 鼠标悬停时稍微放大 */
+}
+
+/* Slide Preview Thumbnail */
+.slide-preview-thumbnail-large {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    border-radius: 0; /* Corner radius already on card */
+}
+
+.info-details-area {
+    flex-grow: 1;
+    /* padding handled by parent .card-inner-content */
+    overflow: hidden;
+}
+
+.result-group-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 5px 0;
+    color: #303133;
+}
+.result-group-source {
+    font-size: 13px;
+    color: #909399;
+    margin: 0 0 10px 0;
+}
+
+.matching-segments-list {
+    max-height: 100px; /* 限制高度，内部滚动 */
+    overflow-y: auto;
+    padding-right: 10px; /* 留出滚动条空间 */
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+    margin-top: 10px;
+}
+
+.segment-link {
+    display: flex;
+    align-items: flex-start;
+    padding: 5px 0;
+    line-height: 1.5;
+    transition: background-color 0.2s;
+    border-radius: 4px;
+    cursor: pointer; /* Ensure individual segments are clickable */
+}
+.segment-link:hover {
+    background-color: #e6f7ff; /* 悬停效果 */
+    color: #409EFF;
+}
+.segment-context {
+    font-weight: bold;
+    color: #409EFF;
+    margin-right: 10px;
+    flex-shrink: 0;
+    font-family: monospace;
+}
+.segment-snippet {
+    color: #606266;
+    flex-grow: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap; /* 确保在单行显示 */
+}
+.segment-link:hover .segment-snippet {
+    white-space: normal; /* 悬停时显示完整文本 */
+    height: auto;
+    max-height: none;
+}
+
+
+/* Quick search drawer内的幻灯片缩略图 */
+.quick-result-slide-preview {
+  width: 60px; /* 较小 */
+  height: 40px; /* 比例 3:2 */
+  border: 1px solid #e4e7ed;
+  border-radius: 2px;
+  margin-right: 8px;
+  object-fit: cover; /* 确保图片填充 */
+  flex-shrink: 0;
+}
+
+
+/* 资源项内部的预览图 (课程详情页) - 确保已删除 */
+.resource-preview-thumbnail {
+  display: none; /* 强制隐藏 */
+}
+
+
+/* 视频转录样式 (课程详情页) */
+.transcript-tab {
+  max-height: 500px; /* 限制高度并添加滚动条 */
+  overflow-y: auto;
+}
+.transcript-list {
+  padding: 10px 0;
+}
+.transcript-line {
+  margin-bottom: 8px;
+  line-height: 1.6;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+.transcript-line:hover {
+  background-color: #f0f2f5;
+}
+.transcript-timestamp {
+  font-weight: bold;
+  color: #409EFF;
+  margin-right: 10px;
+  font-family: monospace;
+}
+</style>
