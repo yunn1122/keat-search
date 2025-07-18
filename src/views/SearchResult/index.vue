@@ -5,9 +5,28 @@ import FrontFooter from '../Front/components/FrontFooter.vue';
 </script>
 
 <template>
+    <div class="app-layout-container">
     <FrontHeader/>
 
-    <SearchView />
+    <main class="main-content-wrapper">
+        <SearchView />
+    </main>
+    
     
     <FrontFooter />
+    </div>
 </template>
+
+<style scoped>
+.app-layout-container {
+  display: flex;
+  flex-direction: column; 
+  min-height: 100vh; 
+
+}
+
+.main-content-wrapper {
+  flex-grow: 1; 
+}
+
+</style>

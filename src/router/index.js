@@ -9,6 +9,7 @@ import LearnCourse from '@/views/LearnCourse/index.vue'
 import NotFound from '@/views/PageNotFound/index.vue'
 
 import Test from '@/views/Test/index.vue'
+import UserStudyForm from '@/views/UserStudyForm/index.vue'
 
 
 const router = createRouter({
@@ -49,6 +50,10 @@ const router = createRouter({
         {
           path:'/test',
           component:Test,
+        },
+        {
+          path:'/questionnaire',
+          component:UserStudyForm,
         },
           {
             path: '/:pathMatch(.*)*',

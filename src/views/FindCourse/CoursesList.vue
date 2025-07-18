@@ -2,8 +2,10 @@
   <div class="courses-page">
     <!-- <h1 class="page-title">Explore Courses</h1> -->
 
-    <div v-if="isLoading" class="loading-state">
-      <p>Loading courses...</p>
+    <div v-if="isLoading" class="loading-state"
+    v-loading.fullscreen.lock="true"
+  element-loading-background="rgba(255, 255, 255, 0.7)">
+      <!-- <p>Loading courses...</p> -->
     </div>
 
     <div v-else-if="error" class="error-state">

@@ -1,72 +1,82 @@
 <script setup>
-import { ref, watch, computed, nextTick, onMounted } from 'vue';
+// =======================================================================
+// 1. IMPORTS & SETUP
+// =======================================================================
+import { ref, watch, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import {
-  VideoPlay,
-  CircleCheckFilled,
-  Search,
-  Picture,
-  VideoCamera,
-  Download,
-  View as ViewIcon,
-  Close
+import { 
+  Search, 
+  VideoCamera, 
+  Picture, 
+  VideoPlay, 
+  View as ViewIcon, 
+  Download, 
+  Close,
+  CircleCheckFilled 
 } from '@element-plus/icons-vue';
 
-// --- Keats API 基础 URL ---
+// =======================================================================
+// 2. CONSTANTS & API CONFIG
+// =======================================================================
 const KEATS_API_BASE_URL = '/api';
 
-// --- 状态定义 ---
+// =======================================================================
+// 3. STATE MANAGEMENT (REFS)
+// =======================================================================
 const courseData = ref(null);
 const isLoading = ref(true);
 const error = ref(null);
 const curriculum = ref([]);
 const resources = ref({});
 const completedLessons = ref([]);
-
 const currentLessonId = ref(null);
+const activeCollapse = ref([]);
 const activeSlideUrl = ref(null);
 const slideViewerRef = ref(null);
+const autocompleteRef = ref(null);
 let ytPlayer = null;
-const activeCollapse = ref([]);
-const highlightQuery = ref('');
 
+
+// --- Search State ---
+const floatingSearchQuery = ref('');
+
+// --- Vue Router ---
 const router = useRouter();
 const route = useRoute();
 
-// --- 计算属性 ---
+// =======================================================================
+// 4. COMPUTED PROPERTIES
+// =======================================================================
 const courseTitle = computed(() => courseData.value?.course_title || 'Loading...');
-const courseProgress = computed(() => 0);
 const activeResources = computed(() => resources.value[currentLessonId.value]?.filter(r => r.type === 'slide') || []);
 const activeVideoId = computed(() => {
   if (!curriculum.value || !currentLessonId.value) return null;
   const lesson = curriculum.value.flatMap(sec => sec.lessons).find(l => l.id === currentLessonId.value);
   return lesson ? lesson.videoId : null;
 });
-
-// n: 总课程数量
 const totalLessonsCount = computed(() => {
   if (!curriculum.value) return 0;
   return curriculum.value.flatMap(sec => sec.lessons).length;
 });
-
-// m: 当前课程的序号 (1-based index)
 const currentLessonIndex = computed(() => {
   if (!currentLessonId.value || !curriculum.value || totalLessonsCount.value === 0) return 0;
   const allLessons = curriculum.value.flatMap(sec => sec.lessons);
   const index = allLessons.findIndex(l => l.id === currentLessonId.value);
   return index !== -1 ? index + 1 : 0;
 });
-
 const currentLessonTitle = computed(() => {
   if (!currentLessonId.value || !curriculum.value || curriculum.value.length === 0) {
-    return '选择一节课开始学习'; // 初始或未选中时的默认文本
+    return '选择一节课开始学习';
   }
   const allLessons = curriculum.value.flatMap(sec => sec.lessons);
   const currentLesson = allLessons.find(l => l.id === currentLessonId.value);
   return currentLesson ? currentLesson.title : '';
 });
 
-// --- 时间戳转换辅助函数 ---
+
+// =======================================================================
+// 5. HELPER FUNCTIONS
+// =======================================================================
 const timeStringToSeconds = (timeStr) => {
   if (!timeStr || typeof timeStr !== 'string') return 0;
   const parts = timeStr.split(':').map(Number);
@@ -75,46 +85,301 @@ const timeStringToSeconds = (timeStr) => {
   return parts[0] || 0;
 };
 
-// --- 按需加载资源逻辑 ---
-async function fetchResourcesForLesson(lessonId) {
-  if (!lessonId || !courseData.value) return;
-  if (resources.value[lessonId]) return;
+function getYouTubeID(url) {
+  if (!url) return null;
+  const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+}
 
-  try {
-    const courseId = route.params.id;
-    resources.value[lessonId] = [];
-    const filesResponse = await fetch(`${KEATS_API_BASE_URL}/files?course=${courseId}&lecture=${lessonId}`);
-    if (!filesResponse.ok) throw new Error(`Failed to get file for lecture  ${lessonId} `);
-    const filesData = await filesResponse.json();
-    const lectureFiles = filesData[0]?.files || [];
+function getPdfThumbnailUrl(url) {
+  if (!url || url.startsWith('http')) { return url; }
+  return `http://46.101.49.168/${url}`;
+}
 
-    resources.value[lessonId] = lectureFiles.map(file => {
-      const isSlide = file.doc_type === 'pdf';
-      return {
-        id: file.doc_id,
-        name: isSlide
-          ? `${courseData.value.course_title} slide ${lessonId}`
-          : file.doc_id,
-        type: isSlide ? 'slide' : file.doc_type,
-        downloadUrl: file.url,
-        previewImage: isSlide ? getPdfThumbnailUrl(file.thumbnail_url) : file.thumbnail_url
-      };
-    });
+function highlight(text, query) {
+  if (!query || !text) return text;
+  const regex = new RegExp(`(${query})`, 'gi');
+  return text.replace(regex, `<span class="highlight">$1</span>`);
+}
 
-    const videoFile = lectureFiles.find(file => file.doc_type === 'mp4');
-    if (videoFile) {
-      const lessonInCurriculum = curriculum.value.flatMap(sec => sec.lessons).find(l => l.id === lessonId);
-      if (lessonInCurriculum) {
-        lessonInCurriculum.videoId = getYouTubeID(videoFile.url);
-      }
+function createCenteredSnippet(fullText, keyword, targetLength = 110) {
+    // 如果没有关键词或文本本身很短，则从头截断或返回原文
+    if (!keyword || !fullText || fullText.length <= targetLength) {
+        return fullText.substring(0, targetLength);
     }
-  } catch (e) {
-    console.error("Error loading resources on demand:", e);
-    resources.value[lessonId] = [];
+
+    const keywordLower = keyword.toLowerCase();
+    const textLower = fullText.toLowerCase();
+    const keywordIndex = textLower.indexOf(keywordLower);
+
+    // 如果找不到关键词，也从头开始截断
+    if (keywordIndex === -1) {
+        return fullText.substring(0, targetLength) + '...';
+    }
+
+    // --- 核心修正逻辑 ---
+
+    // 1. 计算理想的起始点
+    const desiredStart = Math.max(0, keywordIndex - Math.floor(targetLength / 2));
+    
+    // 2. 为了不从单词中间切开，将实际起始点向前移动到最近的空格
+    const startIndex = fullText.lastIndexOf(' ', desiredStart);
+    const finalStartIndex = (startIndex === -1 || desiredStart === 0) ? 0 : startIndex;
+
+    // 3. 截取期望长度的文本
+    const snippet = fullText.substr(finalStartIndex, targetLength);
+
+    // 4. 添加前后的省略号
+    const prefix = finalStartIndex > 0 ? '... ' : '';
+    const suffix = (finalStartIndex + targetLength) < fullText.length ? ' ...' : '';
+    
+    return prefix + snippet + suffix;
+}
+
+// =======================================================================
+// 6. CORE LOGIC & API CALLS
+// =======================================================================
+async function fetchResourcesForLesson(lessonId) {
+    if (!lessonId || !courseData.value) return null; // Return null to pass up
+    if (resources.value[lessonId]) {
+        const lesson = curriculum.value.flatMap(sec => sec.lessons).find(l => l.id === lessonId);
+        return lesson ? lesson.videoId : null;
+    }
+
+    try {
+        const courseId = route.params.id;
+        resources.value[lessonId] = [];
+        const filesResponse = await fetch(`${KEATS_API_BASE_URL}/files?course=${courseId}&lecture=${lessonId}`);
+        if (!filesResponse.ok) throw new Error(`Failed to get file for lecture ${lessonId}`);
+        const filesData = await filesResponse.json();
+        const lectureFiles = filesData[0]?.files || [];
+
+        resources.value[lessonId] = lectureFiles.map(file => {
+            const isSlide = file.doc_type === 'pdf';
+            return {
+                id: file.doc_id,
+                name: isSlide ? `${courseData.value.course_title} slide ${lessonId}` : file.doc_id,
+                type: isSlide ? 'slide' : file.doc_type,
+                downloadUrl: file.url,
+                previewImage: isSlide ? getPdfThumbnailUrl(file.thumbnail_url) : file.thumbnail_url
+            };
+        });
+
+        const videoFile = lectureFiles.find(file => file.doc_type === 'mp4');
+        if (videoFile) {
+            const videoId = getYouTubeID(videoFile.url);
+            const lessonInCurriculum = curriculum.value.flatMap(sec => sec.lessons).find(l => l.id === lessonId);
+            if (lessonInCurriculum) {
+                lessonInCurriculum.videoId = videoId;
+            }
+            return videoId;
+        }
+        return null;
+    } catch (e) {
+        console.error("Error loading resources on demand:", e);
+        resources.value[lessonId] = [];
+        return null;
+    }
+}
+
+async function initializeLesson(lessonId, timestamp) {
+  if (!lessonId) return;
+  currentLessonId.value = lessonId;
+  const videoId = await fetchResourcesForLesson(lessonId);
+  const startSeconds = timeStringToSeconds(timestamp);
+
+  if (videoId) {
+    initializeYouTubePlayer(videoId, startSeconds);
+  } else {
+    if (ytPlayer && typeof ytPlayer.destroy === 'function') {
+      ytPlayer.destroy();
+      ytPlayer = null;
+    }
+    const container = document.getElementById('youtube-player-container');
+    if (container) {
+      container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:white;background:black;">本课程无视频内容</div>';
+    }
   }
 }
 
-// --- 初始加载逻辑 (`onMounted`) ---
+function createPlayer(videoId, startSeconds) {
+  if (ytPlayer && typeof ytPlayer.destroy === 'function') ytPlayer.destroy();
+  ytPlayer = new window.YT.Player('youtube-player-container', {
+    height: '100%', width: '100%', videoId: videoId,
+    playerVars: { 'playsinline': 1, 'rel': 0, 'start': startSeconds },
+    events: { 'onReady': () => console.log("YouTube Player is ready.") }
+  });
+}
+
+function initializeYouTubePlayer(videoId, startSeconds = 0) {
+  if (!videoId) return;
+
+  // 检查 YT 和 YT.Player 是否已存在
+  if (window.YT && window.YT.Player) {
+    // 如果已经存在，说明 API 已加载，直接创建播放器
+    createPlayer(videoId, startSeconds);
+  } else {
+    // 如果不存在，才走加载脚本和设置回调的流程
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api"; // 使用官方推荐的 https 地址
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    // 将回调函数的创建也放在这里，确保逻辑的原子性
+    window.onYouTubeIframeAPIReady = () => {
+      createPlayer(videoId, startSeconds);
+    };
+  }
+}
+// =======================================================================
+// 7. SEARCH LOGIC (AUTOCOMPLETE IMPLEMENTATION)
+// =======================================================================
+// =======================================================================
+// 7. SEARCH LOGIC (AUTOCOMPLETE IMPLEMENTATION)
+// =======================================================================
+const queryAutocompleteAsync = async (queryString, cb) => {
+  if (queryString && queryString.length > 2) {
+    try {
+      const response = await fetch(`${KEATS_API_BASE_URL}/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: { question: queryString },
+          top_k: 10,
+          filters: { courses_ids: [route.params.id] }
+        })
+      });
+      if (!response.ok) throw new Error('API request failed');
+      const data = await response.json();
+
+      // --- 重点修改区域 ---
+      const formattedResults = data.map(item => {
+        const doc = item.document;
+        const isVideo = doc.doc_type === 'mp4';
+        
+        // 查找对应的 lecture 标题
+        const lesson = curriculum.value.flatMap(sec => sec.lessons).find(l => l.id === doc.lecture_id);
+        const lectureTitle = lesson ? lesson.title : '未知章节';
+
+        const metaType = isVideo ? 'Video' : 'Slide';
+    const metaContext = isVideo 
+      ? `[${doc.timestamp?.start}]` 
+      : `Page ${doc.page_number}`;
+
+        // 创建摘要
+        const snippet = createCenteredSnippet(doc.content, queryString);
+
+        return {
+          value: lectureTitle, // value 保持不变
+      display: {
+        mainTitle: lectureTitle, // 主标题现在就是讲座标题
+        // 新增：拆分后的 meta 信息
+        metaType: metaType,
+        metaContext: metaContext,
+        snippet: snippet,
+      },
+      originalData: doc,
+      isVideo: isVideo,
+    };
+      });
+      // --- 修改结束 ---
+
+      cb(formattedResults);
+    } catch (e) {
+      console.error("Autocomplete search error:", e);
+      cb([]);
+    }
+  } else {
+    cb([]);
+  }
+};
+
+const handleAutocompleteSelect = async (item) => {
+  const doc = item.originalData;
+  const newLessonId = doc.lecture_id;
+
+  // --- 幻灯片逻辑 ---
+  if (!item.isVideo) {
+    // 1. 如果点击的幻灯片不在当前课程，先切换并等待课程初始化完成
+    if (newLessonId !== currentLessonId.value) {
+      await initializeLesson(newLessonId); // initializeLesson 内部会获取资源
+    }
+
+    // 2. 确保资源已加载 (即使是当前课程，也可能未加载)
+    if (!resources.value[newLessonId]) {
+      await fetchResourcesForLesson(newLessonId);
+    }
+
+    // 3. 从已加载的资源中查找幻灯片
+    const slideResource = resources.value[newLessonId]?.find(r => r.id === doc.doc_id);
+
+    if (slideResource) {
+      // 4. 调用 viewSlide 显示并定位
+      await viewSlide(slideResource, doc.page_number || 1);
+    }
+  }
+
+  // --- 更新 URL ---
+  // 无论点击的是视频还是幻灯片，最后统一更新路由
+  const newQuery = { ...route.query };
+  newQuery.lessonId = newLessonId;
+  newQuery.highlight = floatingSearchQuery.value;
+
+  if (item.isVideo) {
+    newQuery.timestamp = doc.timestamp.start;
+    delete newQuery.viewSlideId;
+    delete newQuery.page;
+  } else {
+    newQuery.viewSlideId = doc.doc_id;
+    newQuery.page = doc.page_number;
+    delete newQuery.timestamp;
+  }
+
+  router.push({ query: newQuery });
+  floatingSearchQuery.value = '';
+};
+
+const handleFloatingSearch = () => {
+  if (!floatingSearchQuery.value.trim()) return;
+  router.push({
+    name: 'SearchView',
+    query: { courseId: route.params.id, q: floatingSearchQuery.value }
+  });
+};
+
+// =======================================================================
+// 8. NAVIGATION & UI HELPERS
+// =======================================================================
+function selectLesson(lesson) {
+  const newQuery = { lessonId: lesson.id };
+  router.push({ query: newQuery });
+}
+
+async function viewSlide(resource, page = 1) {
+  const finalUrl = `${resource.downloadUrl}#page=${page}`;
+  activeSlideUrl.value = finalUrl;
+
+  // 等待 v-if="activeSlideUrl" 完成DOM渲染
+  await nextTick();
+
+  // DOM渲染完毕后，slideViewerRef 才可用
+  if (slideViewerRef.value) {
+    slideViewerRef.value.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function closeSlideViewer() {
+  activeSlideUrl.value = null;
+  const newQuery = { ...route.query };
+  delete newQuery.viewSlideId;
+  delete newQuery.page;
+  router.push({ query: newQuery });
+}
+
+// =======================================================================
+// 9. LIFECYCLE HOOKS & WATCHERS
+// =======================================================================
 // --- 初始加载逻辑 (`onMounted`) ---
 onMounted(async () => {
   const courseIdFromRoute = route.params.id;
@@ -144,7 +409,7 @@ onMounted(async () => {
     
     curriculum.value = [{
       id: `section-${courseIdFromRoute}`,
-      title: `${currentCourse.course_title} `,
+      title: `${currentCourse.course_title}`,
       lessons: lectures.map(l => ({ id: l.lecture_id, title: l.lecture_title, videoId: null }))
     }];
 
@@ -152,7 +417,7 @@ onMounted(async () => {
       activeCollapse.value = [curriculum.value[0].id];
     }
     
-    // 步骤 2: 确定初始课程，但先不初始化播放器
+    // 确定初始课程和时间戳
     initialLessonId = route.query.lessonId || curriculum.value?.[0]?.lessons?.[0]?.id;
     initialTimestamp = route.query.timestamp;
 
@@ -160,418 +425,165 @@ onMounted(async () => {
     console.error("error in loading course data", e);
     error.value = e.message;
   } finally {
-    // 步骤 3: 设置 loading 为 false，这将触发 Vue 渲染主页面 DOM
+    // 步骤 2: **立即将 isLoading 设为 false**
+    // 这会触发Vue去渲染主页面的DOM
     isLoading.value = false;
     
-    // 步骤 4: 使用 await nextTick() 确保 DOM 更新已完成
+    // 步骤 3: **使用 await nextTick() 确保DOM更新已完成**
     await nextTick();
     
-    // 步骤 5: 在 DOM 准备就绪后，才执行初始化课程的逻辑
+    // 步骤 4: 在DOM准备就绪后，才执行初始化课程的逻辑
     if (initialLessonId) {
       await initializeLesson(initialLessonId, initialTimestamp);
-    } else if (!error.value) { // 避免覆盖在 try 中可能已设置的错误信息
-      error.value = "No video for this course";
+    } else if (!error.value) { 
+      error.value = "No playable content for this course.";
     }
   }
 });
 
-// --- YouTube Player 核心逻辑 ---
-function initializeYouTubePlayer(videoId, startSeconds = 0) {
-  if (!videoId) return;
-
-  if (window.YT && window.YT.Player) {
-    createPlayer(videoId, startSeconds);
-  } else {
-    const tag = document.createElement('script');
-    tag.src = "https://www.youtube.com/iframe_api"; // Using official URL
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-    window.onYouTubeIframeAPIReady = () => createPlayer(videoId, startSeconds);
-  }
-}
-
-function createPlayer(videoId, startSeconds) {
-  if (ytPlayer && typeof ytPlayer.destroy === 'function') {
-    ytPlayer.destroy();
-    ytPlayer = null;
-  }
-  ytPlayer = new window.YT.Player('youtube-player-container', {
-    height: '100%',
-    width: '100%',
-    videoId: videoId,
-    playerVars: {
-      'playsinline': 1,
-      'rel': 0,
-      'start': startSeconds
-    },
-    events: {
-      'onReady': () => console.log("YouTube Player is ready.")
-    }
-  });
-}
-
-// --- 路由与页面交互逻辑 ---
-
-function scrollToPlayer() {
-  nextTick(() => {
-    const container = document.getElementById('youtube-player-container');
-    if (container) {
-      container.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  });
-}
 
 
-/**
- * 新的、统一的课程初始化函数
- * @param {string} lessonId - 要加载的课程ID
- * @param {string} [timestamp] - 初始播放时间戳
- */
-async function initializeLesson(lessonId, timestamp) {
-  if (!lessonId) {
-    console.error("Failed to initialize course, lessenId is invaild");
-    return;
-  }
-  
-  currentLessonId.value = lessonId;
-  await fetchResourcesForLesson(lessonId);
+watch(floatingSearchQuery, async (newValue) => {
+  // 当有新的搜索词时
+  if (newValue && newValue.length > 2) {
+    // 等待下拉框出现
+    await nextTick();
+    await new Promise(resolve => setTimeout(resolve, 50)); // 等待动画
 
-  const videoId = activeVideoId.value;
-  const startSeconds = timeStringToSeconds(timestamp);
-
-  if (videoId) {
-    initializeYouTubePlayer(videoId, startSeconds);
-  } else {
-    if (ytPlayer && typeof ytPlayer.destroy === 'function') {
-      ytPlayer.destroy();
-      ytPlayer = null;
-    }
-    const container = document.getElementById('youtube-player-container');
-    if (container) {
-        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:white;background:black;">本课程无视频内容</div>';
+    // 找到下拉框的滚动区域
+    const scrollWrapper = document.querySelector('.el-autocomplete-suggestion__wrap');
+    
+    if (scrollWrapper) {
+      // 强行修改最大高度
+      scrollWrapper.style.maxHeight = '600px'; 
+      scrollWrapper.parentElement.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+      scrollWrapper.parentElement.style.borderRadius = '4px'; // 顺便加个圆角更好看
     }
   }
-  scrollToPlayer();
-}
+});
 
-
-// 
-
-/**
- * 创建以关键词为中心的文本片段
- * @param {string} fullText - 完整的原始文本
- * @param {string} keyword - 要居中显示的关键词
- * @param {number} [targetLength=280] - 希望截取的文本片段的大致长度（字符数）
- * @returns {string} - 处理后的、以关键词为中心的文本片段
- */
-function createCenteredSnippet(fullText, keyword, targetLength = 280) {
-  if (!keyword || !fullText || fullText.length < targetLength) {
-    return fullText; // 如果文本本身很短或没有关键词，则无需处理
-  }
-
-  const keywordLower = keyword.toLowerCase();
-  const textLower = fullText.toLowerCase();
-  const keywordIndex = textLower.indexOf(keywordLower);
-
-  // 如果找不到关键词，或者关键词本身就在文本的开头部分，则直接从头开始截断
-  if (keywordIndex === -1 || keywordIndex < targetLength * 0.4) {
-    return fullText;
-  }
-
-  // 计算理想的起始点，让关键词尽量处于中间
-  const desiredStart = keywordIndex - Math.floor(targetLength / 2);
-  
-  // 为了不从单词中间切开，我们从理想起始点往前找到第一个空格
-  const startIndex = Math.max(0, fullText.lastIndexOf(' ', desiredStart));
-
-  // 截取文本片段，并在前面加上省略号
-  const snippet = fullText.substring(startIndex);
-
-  // 如果不是从头开始截取的，就在前面加上 "..."
-  return (startIndex > 0 ? '... ' : '') + snippet;
-}
-
-// 监听核心播放参数的变化
-watch(
-  () => [route.query.lessonId, route.query.timestamp],
+watch(() => [route.query.lessonId, route.query.timestamp],
   ([newLessonId, newTimestamp], [oldLessonId, oldTimestamp]) => {
-    if (isLoading.value || !newLessonId) return;
+    if (isLoading.value || !newLessonId || !newLessonId) return;
+
+    // Do not re-initialize if it's the same lesson and timestamp
+    if (newLessonId === oldLessonId && newTimestamp === oldTimestamp) return;
 
     const lessonChanged = newLessonId !== oldLessonId;
 
     if (lessonChanged) {
       initializeLesson(newLessonId, newTimestamp);
-    } else if (newTimestamp !== oldTimestamp) {
+    } else { // Timestamp changed
       const startSeconds = timeStringToSeconds(newTimestamp);
       if (ytPlayer && typeof ytPlayer.seekTo === 'function') {
         ytPlayer.seekTo(startSeconds, true);
+        ytPlayer.playVideo();
       }
     }
-  },
-  { deep: true }
+  }, { deep: true }
 );
-
-// 专门监听幻灯片相关的参数
-watch(
-  () => [route.query.viewSlideId, route.query.page],
-  ([newSlideId, newPage]) => {
+watch(() => [route.query.viewSlideId, route.query.page],
+  async ([newSlideId, newPage]) => {
+    // 页面加载完成后再响应
     if (isLoading.value) return;
 
-    if (newSlideId) {
-      const resource = activeResources.value.find(r => r.id === newSlideId);
-      if (resource) {
-        viewSlide(resource, newPage || 1);
+    // 如果URL中的slideId消失了，则关闭查看器
+    if (!newSlideId) {
+      if (activeSlideUrl.value) {
+        closeSlideViewer();
       }
-    } else {
-      closeSlideViewer();
+      return;
+    }
+
+    // 确保资源已加载
+    if (currentLessonId.value && !resources.value[currentLessonId.value]) {
+      await fetchResourcesForLesson(currentLessonId.value);
+    }
+    
+    // 查找并显示幻灯片
+    const allResources = Object.values(resources.value).flat();
+    const resource = allResources.find(r => r.id === newSlideId);
+
+    if (resource) {
+      // 避免在URL未变时重复调用
+      const existingUrl = `${resource.downloadUrl}#page=${newPage || 1}`;
+      if (activeSlideUrl.value !== existingUrl) {
+        await viewSlide(resource, newPage || 1);
+      }
     }
   }
-);
-
-// 专门监听高亮参数
-watch(
-  () => route.query.highlight,
-  (newHighlight) => {
-    highlightQuery.value = newHighlight || '';
-  }
+  // 注意：不再有 { immediate: true }
 );
 
 watch(currentLessonId, (newId) => {
   if (!newId) return;
-
-  // 使用 nextTick 确保 DOM 已经更新完毕
   nextTick(() => {
     const activeLessonElement = document.getElementById(`lesson-item-${newId}`);
     if (activeLessonElement) {
-      // scrollIntoView 是一个浏览器原生API，非常方便
-      activeLessonElement.scrollIntoView({
-        behavior: 'smooth', // 平滑滚动
-        block: 'center'    // 将元素滚动到容器的中间位置
-      });
+      activeLessonElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   });
 });
-
-function selectLesson(lesson) {
-  router.push({ query: { lessonId: lesson.id } });
-}
-
-async function handleQuickSearchResultClick(groupItem, childItem) {
-  isSearchDrawerVisible.value = false; // 先关闭抽屉
-
-  const resultType = groupItem.type;
-  const lessonId = groupItem.lessonId;
-  const queryParams = {
-    lessonId: lessonId,
-    highlight: quickSearchQuery.value,
-  };
-  let hash = ''; // 初始化 hash 为空
-
-  // 如果课程发生变化，先等待新课程初始化完成
-  // (我们使用的是已经没有滚动功能的 initializeLesson)
-  if (lessonId !== currentLessonId.value) {
-    await initializeLesson(lessonId, resultType === 'Video' ? childItem.timestamp : undefined);
-  }
-
-  // 处理幻灯片资源
-  if (resultType === 'Resource') {
-    queryParams.viewSlideId = childItem.doc_id;
-    queryParams.page = childItem.page;
-    hash = '#slide-viewer-container'; // 幻灯片的 hash 行为保持不变
-
-    const lessonResources = resources.value[lessonId] || [];
-    const resource = lessonResources.find(r => r.id === childItem.doc_id);
-    
-    if (resource) {
-      viewSlide(resource, childItem.page);
-    } else {
-      console.error("Failed to find a resource in the click processing, which shouldn't happen.");
-    }
-  } 
-  // 处理视频资源
-  else if (resultType === 'Video') {
-    queryParams.timestamp = childItem.timestamp;
-    
-    // 【核心修改】对于视频点击，我们不再给 hash 赋值
-    // hash = '#youtube-player-container'; // <--- 删除或注释此行
-
-    // 如果课程没变，只是时间戳变了，手动 seek
-    if (lessonId === currentLessonId.value && ytPlayer) {
-      const startSeconds = timeStringToSeconds(childItem.timestamp);
-      ytPlayer.seekTo(startSeconds, true);
-    }
-    
-    // 这段手动的滚动逻辑现在将是唯一的滚动来源，可以正常工作
-    nextTick(() => {
-      const videoPlayerElement = document.getElementById('youtube-player-container');
-      if (videoPlayerElement) {
-        videoPlayerElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
-      }
-    });
-  }
-
-  // 最后更新 URL。因为视频点击时 hash 为空，所以不会触发路由滚动
-  router.push({ query: queryParams, hash: hash });
-}
-
-function viewSlide(resource, page = 1) {
-  activeSlideUrl.value = `${resource.downloadUrl}?page=${page}`;
-  
-  nextTick(() => {
-    // 再等一轮，确保组件已挂载
-    requestAnimationFrame(() => {
-      const viewerEl = slideViewerRef.value;
-      if (viewerEl && viewerEl.scrollIntoView) {
-        viewerEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    });
-  });
-}
-
-function getYouTubeID(url) {
-  if (!url) return null;
-  const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
-}
-
-function getPdfThumbnailUrl(url) {
-  if (!url || url.startsWith('http')) { return url; }
-  return `http://46.101.49.168/${url}`;
-}
-
-function closeSlideViewer() {
-  activeSlideUrl.value = null;
-}
-
-// --- 搜索相关逻辑 (保持不变) ---
-const isSearchDrawerVisible = ref(false);
-const quickSearchQuery = ref('');
-const quickSearchResults = ref([]);
-const isSearching = ref(false);
-const quickSearchIcons = {
-  Video: VideoCamera,
-  Resource: Picture
-};
-
-function highlightText(text, query) {
-  if (!query || !text) return text;
-  const regex = new RegExp(`(${query})`, 'gi');
-  return text.replace(regex, `<span class="highlight">$1</span>`);
-}
-
-watch(quickSearchQuery, async (newQuery) => {
-  if (newQuery.length > 2) {
-    isSearching.value = true;
-    try {
-      const courseId = route.params.id;
-      const response = await fetch(`${KEATS_API_BASE_URL}/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: { question: newQuery },
-          top_k: 20,
-          filters: { courses_ids: [courseId] }
-        })
-      });
-      if (!response.ok) throw new Error(`API request failed: ${response.status}`);
-      const data = await response.json();
-      quickSearchResults.value = data;
-    } catch (e) {
-      console.error("error in quick search", e);
-      quickSearchResults.value = [];
-    } finally {
-      isSearching.value = false;
-    }
-  } else {
-    quickSearchResults.value = [];
-  }
-});
-
-const groupedQuickSearchResults = computed(() => {
-  const grouped = new Map();
-  quickSearchResults.value.forEach(item => {
-    const doc = item.document;
-    let key, groupTitle, groupSource;
-    let commonPreviewImage = doc.doc_type === 'pdf'
-      ? getPdfThumbnailUrl(doc.thumbnail_url)
-      : doc.thumbnail_url;
-
-    if (doc.doc_type === 'mp4') {
-      key = `video-group-${doc.lecture_id}`;
-      groupTitle = doc.lecture_title;
-      groupSource = `Video `;
-    } else if (doc.doc_type === 'pdf') {
-      key = `resource-group-${doc.doc_id}`;
-      groupTitle = doc.lecture_title;
-      groupSource = `Slide `;
-    } else {
-      return;
-    }
-
-    if (!grouped.has(key)) {
-      grouped.set(key, {
-        isGroup: true, type: doc.doc_type === 'mp4' ? 'Video' : 'Resource',
-        icon: doc.doc_type === 'mp4' ? quickSearchIcons.Video : quickSearchIcons.Resource,
-        source: groupSource, title: groupTitle, lessonId: doc.lecture_id,
-        courseId: doc.course_id, previewImage: commonPreviewImage, children: []
-      });
-    }
-
-    const groupItem = grouped.get(key);
-    groupItem.children.push({
-      id: doc.id, snippet: doc.content, timestamp: doc.timestamp?.start,
-      page: doc.page_number,
-      
-      highlightedSnippet: highlightText(
-        createCenteredSnippet(doc.content, quickSearchQuery.value), // 先调用新函数
-        quickSearchQuery.value
-      ),
-      doc_id: doc.doc_id,
-    });
-  });
-  return Array.from(grouped.values());
-});
-
-function goToDeepSearch() {
-  if (!quickSearchQuery.value) return;
-  const courseId = route.params.id;
-  router.push({ name: 'SearchView', query: { courseId: courseId, q: quickSearchQuery.value } });
-}
 
 </script>
 
 <template>
-  <div v-if="isLoading" class="loading-state">
-    <p>Loading...</p>
+  <div v-if="isLoading" class="loading-state"
+  v-loading.fullscreen.lock="true"
+  element-loading-background="rgba(255, 255, 255, 0.7)">
+    <!-- <p>Loading...</p> -->
+     
   </div>
   <div v-else-if="error" class="error-state">
     <p>ERROR: {{ error }}</p>
-    <p>Make sure that your keats search api is running in `{{ KEATS_API_BASE_URL }}`  and the course ID is correct</p>
   </div>
 
   <div v-else class="course-page">
-
-    <div class="floating-search-button">
-    <el-button :icon="Search" type="primary" plain @click="isSearchDrawerVisible = true">
-      Search in Course
-    </el-button>
+    <div class="floating-search-bar" :style="{ width: '450px' }">
+      <el-autocomplete
+  ref="autocompleteRef"
+  v-model="floatingSearchQuery"
+  :fetch-suggestions="queryAutocompleteAsync"
+  placeholder="Search in Course"
+  size="large"
+  clearable
+  fit-input-width 
+  @select="handleAutocompleteSelect"
+  @keyup.enter="handleFloatingSearch"
+  class="floating-autocomplete"
+  popper-class="course-autocomplete-popper"
+  
+>
+  <template #default="{ item }">
+  <div class="autocomplete-item-container">
+    <el-icon class="autocomplete-item-icon">
+      <VideoCamera v-if="item.isVideo" />
+      <Picture v-else />
+    </el-icon>
+    <div class="autocomplete-item-text">
+      <div class="autocomplete-item-title">{{ item.display.mainTitle }}</div>
+      
+      <div class="autocomplete-item-meta">
+        <span class="meta-type">{{ item.display.metaType }}</span>
+        <span class="meta-context">{{ item.display.metaContext }}</span>
+      </div>
+      
+      <div class="autocomplete-item-snippet" v-html="highlight(item.display.snippet, floatingSearchQuery)"></div>
+    </div>
   </div>
+</template>
+  <template #append>
+    <el-button :icon="Search" @click="handleFloatingSearch" />
+  </template>
+</el-autocomplete>
+    </div>
 
     <div class="top-area">
-  <div class="title-group">
-    <h1 class="course-title">{{ courseTitle }}</h1>
-    <h2 class="lecture-title">{{ currentLessonTitle }}</h2>
-  </div>
-  <div class="top-controls">
-    <!-- <el-button :icon="Search" type="primary" plain @click="isSearchDrawerVisible = true">
-      Search in Course
-    </el-button> -->
-  </div>
-</div>
+      <div class="title-group">
+        <h1 class="course-title">{{ courseTitle }}</h1>
+        <h2 class="lecture-title">{{ currentLessonTitle }}</h2>
+      </div>
+    </div>
 
     <el-row :gutter="30">
       <el-col :span="16">
@@ -588,13 +600,9 @@ function goToDeepSearch() {
                 <span class="resource-name">{{ resource.name }}</span>
                 <el-button type="primary" link :icon="ViewIcon" @click="viewSlide(resource)">view</el-button>
                 <el-button
-                  tag="a"
-                  type="primary"
-                  link
-                  :icon="Download"
-                  :href="resource.downloadUrl"
-                  :download="resource.name + '.pdf'"
-                  target="_blank" 
+                  tag="a" type="primary" link
+                  :icon="Download" :href="resource.downloadUrl"
+                  :download="resource.name + '.pdf'" target="_blank" 
                 >download</el-button>
               </li>
             </ul>
@@ -617,104 +625,43 @@ function goToDeepSearch() {
       </el-col>
 
       <el-col :span="8">
-        <div class="sidebar">
+        <div class="sidebar" ref="sidebarRef">
           <el-collapse v-if="curriculum.length > 0" class="curriculum-list" v-model="activeCollapse">
-            <el-collapse-item
-              v-for="section in curriculum"
-              :key="section.id"
-              :title="totalLessonsCount > 0 ? `Lecture Collection (${currentLessonIndex}/${totalLessonsCount})` : section.title"
-              :name="section.id"
-              
-            >
+            <el-collapse-item v-for="section in curriculum" :key="section.id" :name="section.id">
+              <template #title>
+                <div class="custom-collapse-header">
+                  <!-- <span class="title-text">{{ section.title }}</span> -->
+                   <span class="title-text">Lectures Collection</span>
+                  <span class="title-counter" v-if="totalLessonsCount > 0">
+                    ({{ currentLessonIndex }}/{{ totalLessonsCount }})
+                  </span>
+                </div>
+              </template>
               <ul>
                 <li
-    v-for="lesson in section.lessons"
-    :key="lesson.id"
-    :id="`lesson-item-${lesson.id}`"
-    class="lesson-item"
-    :class="{ 'is-current': lesson.id === currentLessonId }"
-    @click="selectLesson(lesson)"
->
-    <div class="lesson-status-icon">
-       </div>
-    <div class="lesson-info">
-        <el-text class="lesson-title" truncated>
-            {{ lesson.title }}
-        </el-text>
-    </div>
-</li>
+                  v-for="lesson in section.lessons"
+                  :key="lesson.id"
+                  :id="`lesson-item-${lesson.id}`"
+                  class="lesson-item"
+                  :class="{ 'is-current': lesson.id === currentLessonId }"
+                  @click="selectLesson(lesson)"
+                >
+                  <div class="lesson-status-icon">
+                    <el-icon v-if="completedLessons.includes(lesson.id)" color="#67C23A"><CircleCheckFilled /></el-icon>
+                    <el-icon v-else><VideoPlay /></el-icon>
+                  </div>
+                  <div class="lesson-info">
+                    <el-text class="lesson-title" truncated>
+                      {{ lesson.title }}
+                    </el-text>
+                  </div>
+                </li>
               </ul>
             </el-collapse-item>
           </el-collapse>
         </div>
       </el-col>
     </el-row>
-
-    <el-drawer
-      v-model="isSearchDrawerVisible"
-      title="Search in Course"
-      direction="rtl"
-      size="40%"
-    >
-      <div class="search-drawer-content">
-        <el-input
-          v-model="quickSearchQuery"
-          placeholder="Input Keyword"
-          size="large"
-          :prefix-icon="Search"
-          clearable
-          @keyup.enter="goToDeepSearch"
-        />
-        <div class="quick-results-area" v-loading="isSearching">
-          <div v-if="quickSearchQuery.length > 2 && !isSearching && groupedQuickSearchResults.length > 0" class="quick-results-summary">
-            Find {{ groupedQuickSearchResults.length }} results
-          </div>
-
-          <div v-if="groupedQuickSearchResults.length > 0" class="quick-results-list">
-            <div v-for="group in groupedQuickSearchResults" :key="group.type + '-' + group.lessonId + '-' + group.courseId + '-' + group.title" class="quick-result-wrapper">
-              <div class="quick-result-group-card">
-                <div class="quick-result-group-header">
-                  <div class="quick-result-icon-container">
-                    <el-icon class="quick-result-icon"><component :is="group.icon" /></el-icon>
-                    <!-- <img v-if="group.type === 'Resource' && group.previewImage" :src="group.previewImage" alt="Preview" class="quick-result-slide-preview"> -->
-                  </div>
-                  <div class="quick-result-details">
-                    <p class="quick-result-title">{{ group.title }}</p>
-                    <div class="quick-result-meta">
-                      <span class="quick-result-source">{{ group.source }}</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="quick-result-group-children">
-                  <div
-                    v-for="child in group.children"
-                    :key="child.id"
-                    class="quick-result-child-item"
-                    @click="handleQuickSearchResultClick(group, child)"
-                  >
-                    <span v-if="group.type === 'Video'" class="quick-result-context">[ {{ child.timestamp }} ]</span>
-                    <span v-else-if="group.type === 'Resource'" class="quick-result-context">[ Page {{ child.page }}  ]</span>
-                    <p class="quick-result-snippet" v-html="child.highlightedSnippet"></p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <p v-else-if="quickSearchQuery.length > 2 && !isSearching" class="no-quick-results">
-            No relevant results found
-          </p>
-        </div>
-        <el-button
-          type="primary"
-          link
-          class="deep-search-link"
-          @click="goToDeepSearch"
-        >
-          View all results in dedicated page...
-        </el-button>
-      </div>
-    </el-drawer>
   </div>
 </template>
 
@@ -786,12 +733,15 @@ function goToDeepSearch() {
 }
 
 
-/* --- 悬浮搜索按钮 (已修正) --- */
-.floating-search-button {
-  position: fixed; /* 定位样式应在这里 */
-  top: 84px;
-  right: 60px;
-  z-index: 1000;
+
+.floating-search-bar {
+ position:fixed;
+ top: 84px;
+ right:60px;
+ z-index: 1000;
+ width:350px;
+ box-shadow:  0 4px 12px rgba(0, 0, 0, 0.15);
+ border-radius:6px;
 }
 
 .floating-search-button .el-button {
@@ -825,6 +775,7 @@ function goToDeepSearch() {
   cursor: pointer;
   transition: background-color 0.3s;
   border-bottom: 1px solid #EBEEF5;
+
 }
 
 .lesson-item:last-child {
@@ -849,6 +800,7 @@ function goToDeepSearch() {
 
 .lesson-info {
     overflow: hidden;
+    
 }
 .lesson-title {
     white-space: nowrap;
@@ -856,7 +808,8 @@ function goToDeepSearch() {
     text-overflow: ellipsis;
     display: block;
     font-size:16px;
-    font-weight:450;
+    font-weight:550;
+    color:#737984;
 }
 .long-title-tooltip {
     max-width: 400px; /* 限制提示框的最大宽度 */
@@ -864,12 +817,15 @@ function goToDeepSearch() {
 
 :deep(.el-collapse-item__header) {
   font-size: 18px;
-  font-weight: 900;
+  font-weight: 1000;
 
 }
 
 :deep(.el-collapse-item__content) {
   padding-bottom: 0;
+  font-weight: bold;
+  font-size: 18px;
+  color:#606266;
 }
 
 
@@ -1100,4 +1056,112 @@ function goToDeepSearch() {
 .curriculum-list::-webkit-scrollbar-thumb:hover {
   background: #c0c4cc; /* 鼠标悬停时滑块的颜色 */
 }
+
+/* --- Autocomplete 样式 --- */
+.autocomplete-item-container {
+  display: flex;
+  align-items: flex-start; /* 图标和文字顶部对齐 */
+  padding: 10px 12px;
+}
+
+.autocomplete-item-icon {
+  margin-right: 12px;
+  margin-top: 10px; /* 微调图标，使其与主标题垂直对齐 */
+  font-size: 18px;
+  color: #888;
+  flex-shrink: 0; /* 防止图标被压缩 */
+}
+
+.autocomplete-item-text {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+}
+
+.autocomplete-item-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #303133;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 5px; /* 在主标题和meta信息间增加一点间距 */
+}
+
+
+
+/* 核心修改：meta 信息的 Flex 布局 */
+.autocomplete-item-meta {
+  display: flex;
+  align-items: baseline; /* 基线对齐，让 'Video' 和 '[...]' 在文字底部对齐 */
+  font-size: 13px;
+  width: 100%;
+}
+
+.meta-type {
+  /* 这是 "Video" 或 "Slide" */
+  color: #606266; /* 普通灰色 */
+  font-weight: 500;
+  width: 50px; /* 给一个固定宽度，确保第二列对齐 */
+  flex-shrink: 0;
+}
+
+.meta-context {
+  /* 这是 "[00:15:57]" 或 "Page 23" */
+  color: #6a9bfe; /* 颜色更浅一些 */
+  font-family: monospace; /* 使用等宽字体让时间戳更好看 */
+  font-weight: 900;
+}
+
+.autocomplete-item-snippet {
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.5;
+  margin-top: 8px; /* 摘要与meta信息间的间距 *
+  
+  /* 多行文本省略（可选，但推荐） */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* 最多显示2行 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal; /* 覆盖可能存在的 nowrap */
+}
+
+:deep(.highlight) {
+  background-color: #fdf6ec;
+  color: #e6a23c;
+  font-weight: normal;
+}
+
+/* --- 搜索按钮悬浮变色效果 (区域修正版) --- */
+
+/* 1. 设置外层容器的默认样式和过渡效果 */
+:deep(.floating-search-bar .el-input-group__append) {
+  background-color: #f5f7fa; /* 默认的浅灰色背景 */
+  transition: background-color 0.2s ease-in-out;
+  /* 移除可能存在的右侧边框，让它和输入框融为一体 */
+  box-shadow: none; 
+}
+
+/* 2. 重置内部按钮的样式，让它变得“隐形” */
+:deep(.floating-search-bar .el-input-group__append .el-button) {
+  background-color: transparent; /* 背景透明 */
+  border: none;                 /* 无边框 */
+  color: #909399;               /* 设置一个默认的图标颜色 */
+  transition: color 0.2s ease-in-out; /* 为图标颜色也加上过渡 */
+}
+
+/* 3. 当鼠标悬停在“外层容器”上时，改变容器背景色 */
+:deep(.floating-search-bar .el-input-group__append:hover) {
+  background-color: #74b9ff; /* 将容器背景变为蓝色 */
+}
+
+/* 4. 同时，当鼠标悬停在“外层容器”上时，改变“内部按钮”里图标的颜色 */
+:deep(.floating-search-bar .el-input-group__append:hover .el-button) {
+  color: #ffffff; /* 将图标变为白色 */
+}
+
 </style>
+
