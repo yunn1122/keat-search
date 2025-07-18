@@ -43,7 +43,7 @@ const courseSpecificSuggestions = {
   ],
   // 算法导论
   '6.006': [
-    'Dijkstra&#39s algorithm',
+    'Dijkstra algorithm',
     'Binary Tree',
     'Hash Funtion',
     'Time Complexity',

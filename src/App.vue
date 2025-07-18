@@ -63,7 +63,7 @@ function handleQuestionnaireClose() {
     width="800px"
     :before-close="handleQuestionnaireClose"
   >
-    <p style="text-align: center; padding: 40px;">
+    <p style="text-align: center; padding: 40px; font-weight: 600; font-size: 16px;">
       We are conducting a user study to improve your experience.<br> 
       Would you be willing to spend a few minutes to share your feedback?
       <br><br>
