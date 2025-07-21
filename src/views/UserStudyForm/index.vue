@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { ref , computed} from 'vue';
 import { useSessionStore } from '@/stores/session';
 
 // SUS (System Usability Scale) 标准的10个问题

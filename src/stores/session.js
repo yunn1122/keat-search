@@ -45,6 +45,10 @@ export const useSessionStore = defineStore('session', {
     },
   },
 
-  // persist: 开启数据持久化，这样刷新页面后数据依然存在
-  persist: true,
+  // persist: 开启数据持久化
+  // persist: true,
+  persist: {
+    storage: localStorage, 
+    paths: ['startTime', 'searchCount', 'searches', 'hasBeenPrompted'],
+  },
 })

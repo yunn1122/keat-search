@@ -34,7 +34,8 @@ onMounted(() => {
 
 // 2. 侦听 actionCount 的变化，来决定是否触发问卷
 watch(
-  () => sessionStore.actionCount,
+  // () => sessionStore.actionCount,
+  () => sessionStore.searchCount,
   (newCount) => {
     // 如果已经弹出过，或者会话还未开始，则直接返回
     if (sessionStore.hasBeenPrompted || !sessionStore.startTime) return;
