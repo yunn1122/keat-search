@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue';
+import { useSessionStore } from '@/stores/session';
 
 // SUS (System Usability Scale) 标准的10个问题
 const susQuestions = [
@@ -22,6 +23,21 @@ const generalComments = ref(''); // 存储通用评论
 // 初始化评分，默认都为0或null
 susQuestions.forEach((_, index) => {
   susAnswers.value[`q${index + 1}`] = null;
+});
+
+
+const sessionStore = useSessionStore();
+
+//自动将所有要记录的数据打包成一个JSON字符串
+const userStudyData = computed(() => {
+  const data = {
+    interactionSeconds: sessionStore.interactionSeconds,
+    searchCount: sessionStore.searchCount,
+    searches: sessionStore.searches,
+  };
+  
+  // 将对象转换成JSON字符串，以便在表单中提交
+  return JSON.stringify(data, null, 2);
 });
 
 </script>
@@ -81,6 +97,8 @@ susQuestions.forEach((_, index) => {
           class="comments-textarea"
         />
       </div>
+
+      <input type="hidden" name="user_study_data" :value="userStudyData">
 
       <div class="submit-area">
         <el-button type="primary" native-type="submit" class="submit-button">Submit Feedback</el-button>

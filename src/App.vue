@@ -7,13 +7,24 @@ import UserStudyForm from '@/views/UserStudyForm/index.vue';
 
 
 const sessionStore = useSessionStore();
-const showQuestionnaireDialog = ref(false);
+// const showQuestionnaireDialog = ref(false);
+
+const showSurveyBanner = ref(false); 
 
 const router = useRouter();
 
-function goToQuestionnaire() {
-  router.push('/questionnaire'); // 
-  showQuestionnaireDialog.value = false; // 关闭对话框
+/*function goToQuestionnaire() {
+  router.push('/questionnaire'); 
+  showQuestionnaireDialog.value = false; 
+}*/
+
+function goToSurveyPage() {
+  router.push('/questionnaire');
+  showSurveyBanner.value = false; // 关闭 banner
+}
+
+function handleCloseBanner() {
+  showSurveyBanner.value = false;
 }
 
 // 1. 在 App 组件挂载时，启动会话计时
@@ -38,26 +49,43 @@ watch(
 
     if ((timeElapsed > timeThreshold && newCount > 2) || newCount >= actionThreshold) {
       console.log('Trigger conditions met! Popping up questionnaire.');
-      showQuestionnaireDialog.value = true;
+      // showQuestionnaireDialog.value = true;
+      showSurveyBanner.value = true;
       sessionStore.setPrompted(); // 立即设置状态，防止重复触发
     }
   }
 );
 
-// 3. 关闭对话框的处理函数
-function handleQuestionnaireClose() {
-  showQuestionnaireDialog.value = false;
-  // 注意：记录“已弹出”的逻辑已移至 watch 中，确保只触发一次
-}
+// function handleQuestionnaireClose() {
+//   showQuestionnaireDialog.value = false;
+// }
 </script>
 
 <template>
   
+  <div class="survey-banner-container">
+    <el-alert
+      v-if="showSurveyBanner"
+      
+      type="info"
+      :closable="false"
+      center
+      
+    >
+    <div class="alert-flex-content">
+      <p>We are conducting a user study to improve your experience. Would you be willing to spend a few minutes to share your feedback?</p>
+      <div class="banner-actions">
+        <el-button  type="success"  @click="goToSurveyPage">Take the Survey</el-button>
+        <el-button  @click="handleCloseBanner">Maybe Later</el-button>
+      </div>
+    </div>
+    </el-alert>
+  </div>
 
   <RouterView />
 
 
-  <el-dialog
+  <!-- <el-dialog
     v-model="showQuestionnaireDialog"
     title="User Experience Questionnaire"
     width="800px"
@@ -72,7 +100,7 @@ function handleQuestionnaireClose() {
         </el-button>
       <el-button @click="handleQuestionnaireClose">Maybe Later</el-button>
     </p>
-  </el-dialog>
+  </el-dialog> -->
 </template>
 
 <style scoped>
@@ -137,4 +165,58 @@ nav a:first-of-type {
     margin-top: 1rem;
   }
 }
+
+.survey-banner-container {
+  position: sticky;
+  top: 60px; 
+  z-index: 1000;
+  
+}
+.survey-banner-container p {
+  margin: 8px 0 16px;
+  font-weight:bold;
+  color:#feffff;
+}
+.banner-actions .el-button {
+  margin: 0 8px;
+}
+
+.survey-alert :deep(.el-alert__content) {
+  flex-grow: 1; 
+}
+
+.alert-flex-content {
+  display: flex;
+  justify-content: space-between; 
+  align-items: center;
+  width: 100%;
+  
+}
+
+.alert-text {
+  text-align: left; /* 确保文字是左对齐的 */
+}
+
+.alert-description {
+  display: block;
+  font-size: bold;
+  margin-top: 4px;
+  color: #606266;
+}
+
+.banner-actions {
+  flex-shrink: 0; /* 防止按钮换行 */
+  padding-left: 24px; /* 在文字和按钮间增加一些间距 */
+}
+
+.banner-actions .el-button + .el-button {
+  margin-left: 24px;
+}
+
+/* 【最终、最强力的修正方案】 */
+:deep(.el-alert--info) {
+  --el-alert-bg-color: #467cf9; /* 这是一个非常柔和的淡绿色 */
+}
+
+
 </style>

@@ -27,9 +27,9 @@ const currentPage = ref(1);
 const pageSize = ref(6);
 const expandedGroups = ref(new Set());
 
-// 【新增】用于防抖的计时器变量
+// 用于防抖的计时器变量
 let debounceTimer = null;
-
+const hasSearched = ref(false); // 追踪是否已执行过搜索
 
 const courseSpecificSuggestions = {
   // 示例：计算思维与数据科学导论
@@ -86,9 +86,19 @@ const suggestedTerms = computed(() => {
 // =======================================================================
 const KEATS_API_BASE_URL = '/api';
 
+// function getPdfThumbnailUrl(url) {
+//   if (!url || url.startsWith('http')) { return url; }
+//   return `http://46.101.49.168/${url}`;
+// }
+
 function getPdfThumbnailUrl(url) {
-  if (!url || url.startsWith('http')) { return url; }
-  return `http://46.101.49.168/${url}`;
+  // 如果 url 为空，或者它已经是一个完整的 http/https 链接，则直接返回
+  if (!url || url.startsWith('http')) { 
+    return url; 
+  }
+
+  // 将原始的图片路径作为 'url' 查询参数传递
+  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
 }
 
 function createCenteredSnippet(fullText, keyword, targetLength = 130) {
@@ -143,7 +153,7 @@ const typeIcons = {
 // =======================================================================
 async function executeSearch() {
   const sessionStore = useSessionStore();
-  sessionStore.incrementActionCount(); // 在执行搜索时，调用 action 增加计数
+  sessionStore.recordSearch(searchQuery.value); 
 
   const courseId = selectedCourseId.value;
   const query = searchQuery.value;
@@ -153,6 +163,7 @@ async function executeSearch() {
     return;
   }
 
+  hasSearched.value = true; // 在执行搜索时，将状态标记为 true
   isLoading.value = true;
   error.value = null;
   try {
@@ -198,7 +209,16 @@ onMounted(async () => {
     error.value = e.message;
   }
   
-  await executeSearch();
+  // await executeSearch();
+
+  // 只有当 URL 中已经存在搜索词时，才在页面加载时自动执行搜索
+  if (searchQuery.value) {
+    await executeSearch();
+  } else {
+    // 如果没有搜索词，则不执行搜索，并确保 loading 状态为 false
+    isLoading.value = false;
+  }
+
 });
 
 watch(searchQuery, (newValue) => {
@@ -373,7 +393,7 @@ function searchWithSuggestedTerm(term) {
         </div>
       </div>
 
-      <div class="search-controls-toolbar">
+      <div v-if="hasSearched" class="search-controls-toolbar">
         <div class="results-count">
           Found {{ groupedResults.length }} groups of results
         </div>
@@ -400,7 +420,7 @@ function searchWithSuggestedTerm(term) {
         </div>
       </div>
 
-      <div class="results-display-area" v-loading="isLoading">
+      <div v-if="hasSearched" class="results-display-area" v-loading="isLoading">
         <div v-if="paginatedResults.length > 0" class="results-list">
             <div v-for="group in paginatedResults" :key="group.key" class="result-group-wrapper">
                 <div class="search-result-card">
@@ -439,7 +459,12 @@ function searchWithSuggestedTerm(term) {
         </div>
       </div>
 
-      <div v-if="groupedResults.length > pageSize" class="pagination-area">
+      <div v-if="!hasSearched" class="welcome-area animated-welcome">
+  <h2>Knowledge Exploration Starts Now</h2>
+  <p>Find any concept instantly within your courses</p>
+</div>
+
+      <div v-if="hasSearched && groupedResults.length > pageSize" class="pagination-area">
         <el-pagination background layout="prev, pager, next" :total="groupedResults.length" :page-size="pageSize" v-model:current-page="currentPage"/>
       </div>
     </div>
@@ -569,5 +594,50 @@ function searchWithSuggestedTerm(term) {
   /* 让标题和第一个标签在垂直方向上对齐 */
   display: flex;
   align-items: center;
+}
+
+/* 欢迎 */
+.welcome-area {
+  text-align: center;
+  padding: 80px 20px;
+  color: #606266;
+}
+.welcome-area h2 {
+  font-size: 28px;
+  font-weight: 600;
+  color: #0a2e78;
+  margin-bottom: 16px;
+}
+.welcome-area p {
+  font-size: 16px;
+  max-width: 500px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* 动画 */
+.animated-welcome h2,
+.animated-welcome p {
+  /* 动画开始前，元素是透明的 */
+  opacity: 0;
+  /* 应用动画：动画名 持续时间 动画结束时保持最后状态 缓动函数 */
+  animation: fadeInSlideUp 0.7s forwards ease-out;
+}
+
+/* 让第二句话的动画延迟一点出现，更有层次感 */
+.animated-welcome p {
+  animation-delay: 0.2s;
+}
+
+/* 定义动画的关键帧 */
+@keyframes fadeInSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(15px); /* 从下方15px处开始 */
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0); /* 移动到原始位置 */
+  }
 }
 </style>
