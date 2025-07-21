@@ -29,12 +29,13 @@ export const useSessionStore = defineStore('session', {
         console.log('Pinia session started at:', this.startTime);
       }
     },
-    recordSearch(keyword) {
+    recordSearch(keyword,courseId) {
       if (!keyword) return; // 如果搜索词为空则不记录
 
       this.searchCount++;
       this.searches.push({
         term: keyword,
+        course: courseId,
         timestamp: new Date().toISOString(), // 记录搜索发生的精确时间
       });
       console.log('Pinia search recorded:', this.searches);

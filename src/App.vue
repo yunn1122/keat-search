@@ -170,7 +170,7 @@ nav a:first-of-type {
 .survey-banner-container {
   position: sticky;
   top: 60px; 
-  z-index: 1000;
+  z-index: 1001;
   
 }
 .survey-banner-container p {

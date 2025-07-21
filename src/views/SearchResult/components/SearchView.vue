@@ -56,7 +56,6 @@ const courseSpecificSuggestions = {
     'Machine Learning',
     'graph problems',
     'Time Complexity',
-    'P and NP',
     'Turing machine',
     'automaton',
   ],
@@ -153,7 +152,7 @@ const typeIcons = {
 // =======================================================================
 async function executeSearch() {
   const sessionStore = useSessionStore();
-  sessionStore.recordSearch(searchQuery.value); 
+  sessionStore.recordSearch(searchQuery.value, selectedCourseId.value);
 
   const courseId = selectedCourseId.value;
   const query = searchQuery.value;
