@@ -102,13 +102,13 @@ const userStudyData = computed(() => {
       <!-- <div style="margin-top: 20px; padding: 10px; border: 1px dashed #ccc; border-radius: 8px;">
         <h4 style="margin: 0 0 10px 0;">测试数据预览 (仅用于开发):</h4>
         <pre style="white-space: pre-wrap; word-wrap: break-word; background-color: #f4f4f5; padding: 10px; border-radius: 4px;">{{ userStudyData }}</pre>
-      </div>
+      </div> -->
 
       <input type="hidden" name="user_study_data" :value="userStudyData">
 
       <div class="submit-area">
         <el-button type="primary" native-type="submit" class="submit-button">Submit Feedback</el-button>
-      </div> -->
+      </div>
 
     </form>
   </div>
