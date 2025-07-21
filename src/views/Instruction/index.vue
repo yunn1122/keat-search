@@ -8,21 +8,21 @@ import { RouterLink } from 'vue-router';
       
       <div class="card-header">
         <h1 class="title">User Study Instructions</h1>
-        <p class="subtitle">Thank you for helping us improve our academic search tool!</p>
+        <!-- <p class="subtitle">Thank you for helping us improve our academic search tool!</p> -->
       </div>
 
       <div class="card-content">
         <p class="intro-text">
-          The goal of this study is to evaluate a new search system designed to help you find information within your course materials more effectively.
+          The goal of this study is to evaluate a new search system designed to help you find information within your course materials more effectively. Thank you for helping us improve our academic search tool!
         </p>
 
         <h2 class="steps-title">Your Task</h2>
         <ol class="steps-list">
           <li>
-            Click the <strong>'Start Search Task'</strong> button below to enter the search environment for the "Introduction to Computational Thinking" course.
+            Click the <strong>'Start'</strong> button below to enter the search environment for courses.
           </li>
           <li>
-            Please spend at least <strong>3-5 minutes</strong> actively exploring the system. Try searching for different concepts or topics that you might look for in this course.
+            Please spend at least <strong>3-5 minutes</strong> actively exploring the system. Try searching for different concepts or topics that you might look for in different courses.
           </li>
           <li>
             After you have used the system for a sufficient amount of time and performed several searches, a banner will appear at the top of the page inviting you to a short questionnaire.
@@ -36,7 +36,7 @@ import { RouterLink } from 'vue-router';
       <div class="card-footer">
         <!-- 这个 RouterLink 会将用户导航到您指定的、搜索框为空的搜索页面 -->
         <RouterLink to="/search?courseId=6.0002&q=" class="start-button">
-          Start Search Task
+          Start
         </RouterLink>
       </div>
 
@@ -94,7 +94,7 @@ import { RouterLink } from 'vue-router';
   line-height: 1.7;
   color: #495057;
   margin-bottom: 32px;
-  text-align: center;
+  /* text-align: center; */
 }
 
 .steps-title {
