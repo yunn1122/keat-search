@@ -52,7 +52,7 @@ const courseSpecificSuggestions = {
     'DFS'
   ],
   //计算论
-  '18.404j':[
+  '18.404J':[
     'Machine Learning',
     'graph problems',
     'Time Complexity',
